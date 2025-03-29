@@ -8,15 +8,10 @@ import asyncio
  
  async def handle_echo(reader, writer):
      """
-     Асинхронная функция для обработки подключений.
      Асинхронная функция для обработки подключений от клиентов.
      """
-     # Читаем данные от клиента (до 100 байт)
-     data = await reader.read(100)
-     message = data.decode()  # Декодируем байты в строку
      global connected_clients
      addr = writer.get_extra_info('peername')  # Получаем адрес клиента
-     print(f"Получено {message!r} от {addr}")
      print(f"Клиент подключился: {addr}")
      connected_clients.add(writer)  # Добавляем клиента в набор подключенных клиентов
      try:
@@ -45,9 +40,6 @@ import asyncio
          await writer.wait_closed()  # Ждем, пока соединение будет полностью закрыто
          print(f"Соединение закрыто с {addr}")
  
-     print(f"Отправка: {message!r}")
-     writer.write(data)       # Отправляем данные обратно клиенту (эхо)
-     await writer.drain()     # Ждем, пока данные будут отправлены
  async def stop_server_when_no_clients(server):
      """
      Асинхронная функция для остановки сервера, когда получена команда 'stop' и нет подключенных клиентов.
@@ -62,10 +54,8 @@ import asyncio
              await server.wait_closed()  # Ждем, пока сервер полностью остановится
              break
  
-     print("Закрытие соединения")
-     writer.close()           # Закрываем соединение
-     await writer.wait_closed()  # Ждем, пока соединение будет полностью закрыто
  async def read_server_commands():
+ async def read_server_commands(loop):
      """
      Асинхронная функция для чтения команд с серверной консоли.
      """
@@ -73,6 +63,7 @@ import asyncio
      while True:
          # Читаем команду с консоли в отдельном потоке, чтобы не блокировать цикл событий
          cmd = await asyncio.to_thread(input, "")
+         cmd = await loop.run_in_executor(None, input)
          if cmd.strip() == 'stop':
              print("Команда 'stop' получена. Остановка сервера после отключения всех клиентов.")
              stop_server = True  # Устанавливаем флаг остановки сервера
@@ -82,20 +73,19 @@ import asyncio
      """
      Основная асинхронная функция для настройки и запуска сервера.
      """
-     # Запускаем сервер, который будет использовать функцию handle_echo для обработки подключений
      server = await asyncio.start_server(handle_echo, HOST, PORT)
  
-     # Получаем адреса, на которых сервер слушает
      addrs = ', '.join(str(sock.getsockname()) for sock in server.sockets)
      print(f'Сервер запущен на {addrs}')
  
-     async with server:
-         await server.serve_forever()  # Запускаем сервер и ждем подключений бесконечно
+     loop = asyncio.get_running_loop()
+ 
      try:
          # Запускаем сервер и функции обслуживания команд и остановки сервера параллельно
          await asyncio.gather(
              server.serve_forever(),        # Сервер принимает подключения
              read_server_commands(),        # Читаем команды с консоли
+             read_server_commands(loop),    # Читаем команды с консоли
              stop_server_when_no_clients(server),  # Проверяем условие остановки сервера
          )
      except KeyboardInterrupt:
